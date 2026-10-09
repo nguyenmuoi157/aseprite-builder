@@ -94,3 +94,71 @@ jobs:
       - name: Install Ninja
         shell: bash
         run: |
+          set -euo pipefail
+          if ! command -v ninja >/dev/null; then
+            brew install ninja
+          fi
+          ninja --version
+
+      - name: Configure CMake
+        shell: bash
+        working-directory: aseprite
+        run: |
+          set -euo pipefail
+          EXTRA_FLAGS=()
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            EXTRA_FLAGS+=("-DPNG_ARM_NEON:STRING=on")
+          fi
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION" \
+            -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=ON \
+            -DENABLE_CCACHE=OFF \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$(realpath skia)" \
+            -DSKIA_LIBRARY_DIR="$(realpath skia/out/Release-${{ matrix.skia_arch }})" \
+            -DSKIA_LIBRARY="$(realpath skia/out/Release-${{ matrix.skia_arch }}/libskia.a)" \
+            "${EXTRA_FLAGS[@]}"
+
+      - name: Compile Aseprite
+        shell: bash
+        working-directory: aseprite
+        run: |
+          set -euo pipefail
+          cmake --build build --parallel 3
+
+      - name: Verify executable architecture
+        shell: bash
+        working-directory: aseprite/build/bin
+        run: |
+          set -euo pipefail
+          file aseprite
+          lipo -archs aseprite
+          lipo -verify_arch "${{ matrix.arch }}" aseprite
+          otool -l aseprite | grep -A4 LC_BUILD_VERSION || true
+
+      - name: Create portable archive
+        shell: bash
+        working-directory: aseprite/build/bin
+        env:
+          RELEASE_TAG: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/aseprite-package"
+          cp -R aseprite data "$RUNNER_TEMP/aseprite-package/"
+          printf '%s\n' '# This file is here so Aseprite behaves as a portable program' \
+            > "$RUNNER_TEMP/aseprite-package/aseprite.ini"
+          cd "$RUNNER_TEMP/aseprite-package"
+          zip -qry "$GITHUB_WORKSPACE/Aseprite-${RELEASE_TAG}-macOS-${{ matrix.arch }}.zip" .
+
+      - name: Upload to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: Aseprite-${{ needs.fetch-aseprite-info.outputs.release-tag }}-macOS-${{ matrix.arch }}.zip
+          asset_name: Aseprite-${{ needs.fetch-aseprite-info.outputs.release-tag }}-macOS-${{ matrix.arch }}.zip
+          tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
+          overwrite: true
