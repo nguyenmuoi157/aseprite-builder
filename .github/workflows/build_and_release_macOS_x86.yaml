@@ -165,8 +165,13 @@ jobs:
           test ! -L "$APP/Contents/MacOS/aseprite"
           lipo "$APP/Contents/MacOS/aseprite" -verify_arch "${{ matrix.arch }}"
 
-          cd "$PACKAGE_DIR"
-          zip -qry "$ARCHIVE" Aseprite.app
+          # Ad-hoc signing seals the complete bundle, without a Developer ID.
+          # This verifies integrity but does not provide Apple notarization.
+          xattr -cr "$APP"
+          codesign --force --sign - --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --verbose=2 "$APP"
+          ditto -c -k --keepParent "$APP" "$ARCHIVE"
           unzip -tq "$ARCHIVE"
           unzip -q "$ARCHIVE" -d "$VERIFY_DIR"
           EXTRACTED_APP="$VERIFY_DIR/Aseprite.app"
@@ -177,6 +182,7 @@ jobs:
           test ! -L "$EXTRACTED_APP/Contents/MacOS/aseprite"
           cmp "$APP/Contents/MacOS/aseprite" "$EXTRACTED_APP/Contents/MacOS/aseprite"
           lipo "$EXTRACTED_APP/Contents/MacOS/aseprite" -verify_arch "${{ matrix.arch }}"
+          codesign --verify --deep --strict --verbose=2 "$EXTRACTED_APP"
           "$EXTRACTED_APP/Contents/MacOS/aseprite" --batch --version
           ARCHIVE_BYTES="$(stat -f %z "$ARCHIVE")"
           test "$ARCHIVE_BYTES" -gt 1048576
