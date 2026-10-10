@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'BuildLog.md'
+      - '.github/workflows/build_and_release_macOS_x86.yaml'
   workflow_dispatch:
 
 env:
@@ -105,9 +106,9 @@ jobs:
         working-directory: aseprite
         run: |
           set -euo pipefail
-          EXTRA_FLAGS=()
+          PNG_ARM_NEON=off
           if [ "${{ matrix.arch }}" = arm64 ]; then
-            EXTRA_FLAGS+=("-DPNG_ARM_NEON:STRING=on")
+            PNG_ARM_NEON=on
           fi
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
@@ -121,7 +122,7 @@ jobs:
             -DSKIA_DIR="$(realpath skia)" \
             -DSKIA_LIBRARY_DIR="$(realpath skia/out/Release-${{ matrix.skia_arch }})" \
             -DSKIA_LIBRARY="$(realpath skia/out/Release-${{ matrix.skia_arch }}/libskia.a)" \
-            "${EXTRA_FLAGS[@]}"
+            -DPNG_ARM_NEON:STRING="$PNG_ARM_NEON"
 
       - name: Compile Aseprite
         shell: bash
@@ -137,7 +138,7 @@ jobs:
           set -euo pipefail
           file aseprite
           lipo -archs aseprite
-          lipo -verify_arch "${{ matrix.arch }}" aseprite
+          lipo aseprite -verify_arch "${{ matrix.arch }}"
           otool -l aseprite | grep -A4 LC_BUILD_VERSION || true
 
       - name: Create portable archive
